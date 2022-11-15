@@ -1,13 +1,61 @@
+-- TODO: Provide a way to "compile" the class so as to be more performant.
+--   Compiling may require generating Lua code from an AST, which might be overkill.
+
+
+
 ---@type table{ [string] = table }
 local classes = {}
 
+--- Returns the class table definition.
+---@param name string
+---@return table or nil
+local function get(name)
+    return classes[name]
+end
+
+
+--- Defines a field as protected (Accessible only by the class and its children)
+---@param value any
+local function protected(value)
+    return { value = value, accessor = "protected" }
+end
+
+--- Defines a field as private (Accessible only by the class)
+---@param value any
+local function private(value)
+    return { value = value, accessor = "private" }
+end
+
+--- Mark a method as virtual. This is useful for creating abstract classes or interfaces.
+local function virtual()
+end
+
+
 --- Create a pure lua class and return the table
 ---@param name string The name of the class
----@param body table The class table
-function class(name, body)
+---@param base table | string The name of the base class
+---@param body table | nil A table representing the fields of the class. This allows for immediate initialization of fields in the constructor.
+local function class(name, base, body)
     if classes[name] ~= nil then
         error(string.format("Class '%s' already defined!", name))
         return
+    end
+
+    -- Overloading
+    if type(base) == "table" then
+        body = base
+        base = nil
+    end
+
+    -- Add the fields to the class
+    local fields = {}
+
+    for k, v in pairs(body) do
+        if not v.accessor then
+            fields[k] = { value = v, accessor = "public" }
+        else
+            fields[k] = v
+        end
     end
 
     --[[
@@ -61,4 +109,9 @@ function class(name, body)
 end
 
 
-return class
+return {
+    class     = class,
+    get       = get,
+    private   = private,
+    protected = protected
+}

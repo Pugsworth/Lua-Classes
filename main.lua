@@ -1,31 +1,42 @@
-local class = require("class")
+local classes = require("class")
 local inspect = require("inspect")
 
-local Point = class("Point", {
-    m_x = 0,
-    m_y = 0,
-    new = function(self, _x, _y)
-        self.m_x = _x
-        self.m_y = _y
-    end,
-    __tostring = function(self)
-        print("__tostring")
-        return string.format("Point(%d, %d)", self.m_x, self.m_y)
-    end,
-    __add = function(self, other)
-        local other_type = type(other)
-        if other_type == "number" then
-            return self.__call(self.m_x + other, self.m_y + other)
-        elseif other_type == "Point" then
-            return self.__call(self.m_x + other.m_x, self.m_y + other.m_y)
-        end
+-- TODO: Find a way to use modules like Typescript (import { Class } from "class")
+local class = classes.class
+local private = classes.private
+local protected = classes.protected
 
-        error(string.format("Cannot add Point to %s", other_type))
-    end,
-    
+---@class Point
+local Point = class("Point", {
+    m_x = protected(0),
+    m_y = protected(0),
 })
 
+function Point.new(self, _x, _y)
+    self.m_x = _x
+    self.m_y = _y
+end
+
+function Point.__tostring(self)
+    return string.format("Point(%d, %d)", self.m_x, self.m_y)
+end
+
+function Point.__add(self, other)
+    local other_type = type(other)
+    if other_type == "number" then
+        return self.__call(self.m_x + other, self.m_y + other)
+    elseif other_type == "Point" then
+        return self.__call(self.m_x + other.m_x, self.m_y + other.m_y)
+    end
+
+    error(string.format("Cannot add Point to %s", other_type))
+end
+
+-- Constructor can be called in one of 2 ways
+-- Type 1
 local p = Point(1, 2)
+-- Type 2
+local p2 = Point.new(3, 4)
 
 print("Point table:")
 print(inspect(Point))
