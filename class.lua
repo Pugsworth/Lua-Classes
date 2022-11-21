@@ -1,187 +1,240 @@
-local dbg = require("debugger")
-
-
 -- TODO: Provide a way to "compile" the class so as to be more performant.
 --   Compiling may require generating Lua code from an AST, which might be overkill.
 
+--[[
+    'class' library should be able to:
+    - Create a class ( Class(name) )
+        - Inheritance ( Class(name, base_name) )
+    - Instantiate a class ( Class.create(name) )
+    - Provide a simple "type" system
+        - Class.is_a(obj, name)
+        - Class.typeof(obj)
+    - Provide a simple "interface" system
+        This will require a way to "create" an interface
+        - Class.implements(obj, name)
+        - Class.interface(name, prototype)
 
 
----@type table{ [string] = table }
-local classes = {}
+    Example of interface usage:
 
+    ```Lua
+    local IPoint = Class.interface("IPoint", {
+        field("x", "y"),
+        method("getX", "getY"),
+    })
+
+    local Point = Class.implements("Point", "IPoint")
+    function Point.ctor(self, x, y)
+        self.x = x
+        self.y = y
+    end
+
+
+    function do_something(ipoint)
+        if Class.implements(ipoint, "IPoint") then
+            print(ipoint:get_x(), ipoint:get_y())
+        end
+    end
+    ```
+]]
+
+-- Library table
+Class = Class or {}
+
+
+-- Stores the classes that have been created.
+local classes = {
+    --[[
+    ["ClassName"] = {
+        __class = "ClassName", -- Name of the class "type"
+        __base = "BaseClassName", -- Name of the base class, if any
+        __implements = { "InterfaceName" }, -- A list of interfaces that this class implements
+        ... -- Everything else related to the class
+    }
+    ]]
+}
+
+-- Stores the interfaces that have been created. Is it even necessary to separate them?
+local interfaces = {}
+
+
+--[[ Library functions ]]
+--[[ Class/Instance functions ]]
 
 --- Returns the class table definition.
 ---@param name string
----@return table or nil
-local function get(name)
+---@return table | nil
+function Class.get(name)
     return classes[name]
 end
 
 
---- Checks if the table is a class type.
----@param obj any
----@@return boolean Is the table a class type?
-local function is_class(obj)
-    return type(obj) == "table" and obj.__name ~= nil
+--- Returns if the class or interface exists
+---@param name string
+---@return boolean
+function Class.exists(name)
+    return classes[name] ~= nil or interfaces[name] ~= nil
 end
 
 
---- Returns the name of the class.
+--- Checks if the given object is an instance of the given class or interface. Fails if not a class or interface.
 ---@param obj table
----@return string The name of the class.
-local function _type(obj)
-    return is_class(obj) and obj.__name or type(obj)
+---@param comparand string
+function Class.is_a(obj, comparand)
+    return type(obj) == "table" and Class.typeof(obj) == "comparand"
 end
 
 
---- Defines a field as protected (Accessible only by the class and its children)
----@param value any
-local function protected(value)
-    return { value = value, accessor = "protected" }
+--- Returns the class name of the given object. Returns type(obj) if not a class or interface.
+--- TODO: Should this only return the class name and not use lua's built-in type() function?
+---@param obj any
+---@return string The class name of the object.
+function Class.typeof(obj)
+    return type(obj) == "table" and obj.__class or type(obj)
 end
 
 
---- Defines a field as private (Accessible only by the class)
----@param value any
-local function private(value)
-    return { value = value, accessor = "private" }
+--- Returns the base class name of the given class. Returns nil if there is no base class.
+---@param obj table
+---@return string | nil The base class name of the object.
+function Class.baseclass(obj)
+    return type(obj) == "table" and obj.__base or nil
 end
 
 
---- Mark a method as virtual. This is useful for creating abstract classes or interfaces.
-local function virtual()
-end
-
-
---- Initialize the fields from tab into a new fields table.
----@param body table{ [string] = any }
----@return table fields
-local function init_fields(body)
-    local fields = {}
-
-    for k, v in pairs(body) do
-        -- TODO: Implement getters and setters
-        if type(v) == "table" and v.accessor then
-            fields[k] = v
-        else
-            fields[k] = { value = v, accessor = "public" }
-        end
+--- Creates a new class with the base class and interface names provided.
+---@param name string Name of the class
+---@param baseclass string | nil Name of the baseclass to inherit from.
+---@param interface_names string[] Names of the interfaces this class implements.
+function Class.create_class(name, baseclass, interface_names)
+    -- Check name
+    assert(not Class.exists(name), string.format("Class '%s' already exists.", name))
+    -- Check baseclass
+    if baseclass then
+        assert(Class.exists(baseclass), string.format("Base class '%s' does not exist.", baseclass))
+    end
+    -- Check interfaces
+    for _, iname in ipairs(interface_names) do
+        assert(Class.exists(iname), string.format("Interface '%s' does not exist.", iname))
     end
 
-    return fields
-end
-
-local function create_instance(class_table, fields, ...)
-    local instance = setmetatable({}, class_table)
-    instance.__fields = fields
-end
-
-local function create_constructor(class_table, ctor)
-end
-
-local function class_exists(name)
-    return classes[name]
-end
-
-
---- Create a pure lua class and return the table
---- Class provides a standardized factory for creating "classes" in Lua.
---- It does this by providing a constructor and a metatable for the class.
---- TODO: Add support for inheritance
---- TODO: Add support for field accessors?
---- TODO: Add support for static methods
----@param name string The name of the class
----@param base (string | nil) The name of the base class
-local function class(name, base)
-    if class_exists(name) then
-        error(string.format("Class '%s' already exists!", name), 2)
-    end
-    if base ~= nil and not class_exists(base) then
-        error(string.format("Base class '%s' does not exist!", base), 2)
-    end
-
-    -- Add the fields to the class
-    -- local fields = init_fields(body)
-
-    --[[
-        The returned class table should only contain the constructor and "static" methods
-    ]]
-    -- The constructed class table returned by this function
-    -- new:
-    --  - constructs a new instance of the class and calls the constructor passed in
-
-    -- class_table mimics the functionality of a class "object" being any fields or methods defined are shared by all instances of the class
+    -- Build the class table and setup the metatable
     local class_table = {
         __class = name,
-        __base = base,
-        -- Methods defined in the class table are stored here.
-        -- This table is added to classes[name] when the class is created.
+        __base = baseclass,
+        __implements = interface_names,
     }
 
-    local class_meta = {
-        __new = function() end, -- Called by __ctor, set by user after class is created (__newindex)
-        __ctor = function(self, instance, ...) -- Called by __call
-            self.__new(instance, ...)
-        end,
-    }
-
-    -- () operator
-    function class_meta.__call(self, ...)
-        -- Construct a new instance of the class and call the ctor of the new instance
-        local instance = setmetatable({}, instance_meta)
-        class_meta.__ctor(self, instance, ...)
-        -- Call __ctor on the metatable
-
-        return instance
-    end
-
-    -- Fetch
-    function class_meta.__index(self, key)
-        if key == "new" then
-            return self.__call
-        else
-            -- Check for the key on self, then on the base class, then on the metatable
-            local value = rawget(self, key)
-            if value ~= nil then
-                return value
-            end
-
-            local _base = rawget(self, "__base")
-            if _base ~= nil then
-                value = rawget(_base, key)
-                if value ~= nil then
-                    return value
-                end
-            end
-
-            return rawget(getmetatable(self), key)
-        end
-    end
-
-    -- Store
-    function class_meta.__newindex(self, key, value)
-        if key == "new" and type(value) == "function" then
-            self.__new = value
-        else
-            rawset(self, key, value)
-        end
-    end
-
-    -- dbg()
-
-    setmetatable(class_table, class_meta)
-
+    -- TODO: How to handle the metatable?
     classes[name] = class_table
 
     return class_table
 end
 
 
-return {
-    class     = class,
-    get       = get,
-    is_class  = is_class,
-    type      = _type,
-    private   = private,
-    protected = protected
-}
+--- Creates a new class
+---@param name string The name of the class to create.
+---@return table The class table.
+function Class.create(name)
+    return Class.create_class(name, nil, {})
+end
+
+
+--- Creates a new class that inherits from another
+--- TODO: How to inherit and implement?
+---@param name string
+---@param basename string
+---@param interface_names string[] or nil
+---@return table The class table.
+function Class.inherits(name, basename, interface_names)
+    return Class.create_class(name, basename, interface_names or {})
+end
+
+
+--- Creates a new class that implements the given interfaces.
+--- TODO: Implement checking for interface implementations
+---@param name string The name of the class to create.
+---@param interface_names string[] List of names of interfaces to implement.
+---@param basename string | nil The base class to inherit from
+---@return table The class table.
+function Class.implements(name, interface_names, basename)
+    return Class.create_class(name, basename, interface_names)
+end
+
+---@class proto_t
+---@field type "fields" | "methods"
+---@field names string[]
+
+--- Creates a new interface
+---@param name string The name of the interface to create.
+---@param prototype proto_t[] The prototype of the interface constructed using Class.fields and Class.methods.
+---@return table The interface table.
+function Class.interface(name, prototype)
+    -- Check name
+    assert(not Class.exists(name), string.format("Interface '%s' already exists.", name))
+
+    -- Check prototype
+    assert(type(prototype) == "table", "Interface prototype must be a table.")
+
+    -- Compile the list of fields and methods into the prototype
+
+    local proto = {
+        fields = {},
+        methods = {},
+    }
+
+    for _, obj in ipairs(prototype) do
+        assert(type(obj) == "table", "Invalid Interface prototype must created with Class.fields and Class.methods.") 
+
+        if obj.type == "fields" then
+            for _, field in ipairs(obj) do
+                table.insert(proto.fields, field)
+            end
+        elseif obj.type == "methods" then
+            for _, method in ipairs(obj) do
+                table.insert(proto.methods, method)
+            end
+        end
+    end
+
+    interfaces[name] = prototype
+end
+
+
+--- Describes a list of fields for an interface
+---@param ... string
+---@return table The list of fields
+function Class.fields(...)
+    local fields = {}
+
+    for _, field in ipairs({...}) do
+        fields[field] = true
+    end
+
+    return {
+        type = "fields",
+        names = fields
+    }
+end
+
+
+--- Describes a list of methods for an interface
+---@param ... string
+---@return table The list of methods
+function Class.methods(...)
+    local methods = {}
+
+    for _, method in ipairs({...}) do
+        methods[method] = true
+    end
+
+    return {
+        type = "methods",
+        names = methods
+    }
+end
+
+
+
+
+return Class
